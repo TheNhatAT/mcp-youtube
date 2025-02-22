@@ -12,6 +12,16 @@ import * as path from "path";
 import { spawnPromise } from "spawn-rx";
 import { rimraf } from "rimraf";
 
+// YouTube URL validation
+function isValidYoutubeUrl(url: string): boolean {
+  const patterns = [
+    /^https?:\/\/(www\.)?youtube\.com\/watch\?v=[\w-]{11}$/,
+    /^https?:\/\/youtu\.be\/[\w-]{11}$/,
+    /^https?:\/\/(www\.)?youtube\.com\/embed\/[\w-]{11}$/
+  ];
+  return patterns.some(pattern => pattern.test(url));
+}
+
 const server = new Server(
   {
     name: "mcp-youtube",
@@ -50,21 +60,37 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   try {
     const { url } = request.params.arguments as { url: string };
 
+    // Validate YouTube URL
+    if (!isValidYoutubeUrl(url)) {
+      return {
+        content: [{ type: "text", text: "Invalid YouTube URL provided" }],
+        isError: true
+      };
+    }
+
     const tempDir = fs.mkdtempSync(`${os.tmpdir()}${path.sep}youtube-`);
-    await spawnPromise(
-      "yt-dlp",
-      [
-        "--write-sub",
-        "--write-auto-sub",
-        "--sub-lang",
-        "en",
-        "--skip-download",
-        "--sub-format",
-        "srt",
-        url,
-      ],
-      { cwd: tempDir, detached: true }
-    );
+    // Add timeout wrapper around spawnPromise
+    const timeoutPromise = new Promise((_, reject) => {
+      setTimeout(() => reject(new Error('Process timeout after 30 seconds')), 30000);
+    });
+
+    await Promise.race([
+      spawnPromise(
+        "yt-dlp",
+        [
+          "--write-sub",
+          "--write-auto-sub",
+          "--sub-lang",
+          "en",
+          "--skip-download",
+          "--sub-format",
+          "srt",
+          url,
+        ],
+        { cwd: tempDir }
+      ),
+      timeoutPromise
+    ]);
 
     let content = "";
     try {

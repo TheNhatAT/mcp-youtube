@@ -12,6 +12,31 @@ import * as path from "path";
 import { spawnPromise } from "spawn-rx";
 import { rimraf } from "rimraf";
 
+// Helper function to split text into chunks
+function splitIntoChunks(text: string, wordLimit: number): string[] {
+  const words = text.split(/\s+/);
+  const chunks: string[] = [];
+  let currentChunk: string[] = [];
+  let currentWordCount = 0;
+
+  for (const word of words) {
+    if (currentWordCount + 1 > wordLimit) {
+      chunks.push(currentChunk.join(' '));
+      currentChunk = [word];
+      currentWordCount = 1;
+    } else {
+      currentChunk.push(word);
+      currentWordCount++;
+    }
+  }
+
+  if (currentChunk.length > 0) {
+    chunks.push(currentChunk.join(' '));
+  }
+
+  return chunks;
+}
+
 // YouTube URL validation
 function isValidYoutubeUrl(url: string): boolean {
   const patterns = [
@@ -92,23 +117,24 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       timeoutPromise
     ]);
 
-    let content = "";
+    let fullContent = "";
     try {
       fs.readdirSync(tempDir).forEach((file) => {
         const fileContent = fs.readFileSync(path.join(tempDir, file), "utf8");
-        content += `${file}\n====================\n${fileContent}`;
+        fullContent += `${file}\n====================\n${fileContent}`;
       });
     } finally {
       rimraf.sync(tempDir);
     }
 
+    // Split content into chunks of 10000 words
+    const chunks = splitIntoChunks(fullContent, 10000);
+
     return {
-      content: [
-        {
-          type: "text",
-          text: content,
-        },
-      ],
+      content: chunks.map(chunk => ({
+        type: "text",
+        text: chunk,
+      })),
     };
   } catch (err) {
     return {

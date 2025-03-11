@@ -169,11 +169,24 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
   };
 });
 
-async function validateAndDownloadSubtitles(url: string): Promise<string> {
+interface YoutubeContent {
+  subtitles: string;
+  description: string;
+}
+
+async function validateAndDownloadSubtitles(url: string): Promise<YoutubeContent> {
   if (!isValidYoutubeUrl(url)) {
     throw new Error("Invalid YouTube URL provided");
   }
 
+  // Get video description and clean ffmpeg warning
+  const description = (await spawnPromise(
+    "yt-dlp",
+    ["--print", "description", url],
+    { detached: true }
+  )).replace(/WARNING:[\s\S]*?dependencies[\r\n]*/g, '');
+
+  // Get subtitles
   const tempDir = fs.mkdtempSync(`${os.tmpdir()}${path.sep}youtube-`);
   await spawnPromise(
     "yt-dlp",
@@ -190,17 +203,20 @@ async function validateAndDownloadSubtitles(url: string): Promise<string> {
     { cwd: tempDir, detached: true }
   );
 
-  let content = "";
+  let subtitles = "";
   try {
     fs.readdirSync(tempDir).forEach((file) => {
       const fileContent = fs.readFileSync(path.join(tempDir, file), "utf8");
-      content += `${file}\n====================\n${fileContent}`;
+      subtitles += `${file}\n====================\n${fileContent}`;
     });
   } finally {
     rimraf.sync(tempDir);
   }
 
-  return content;
+  return {
+    subtitles,
+    description
+  };
 }
 
 interface ProcessedContent {
@@ -209,15 +225,20 @@ interface ProcessedContent {
   totalChunks: number;
 }
 
-function processSubtitleContent(content: string, args: any): ProcessedContent {
-  const fullContent = SubtitleProcessor.processSubtitles(content);
+function processSubtitleContent(content: YoutubeContent, args: any): ProcessedContent & { description: string } {
+  const fullContent = SubtitleProcessor.processSubtitles(content.subtitles);
   const config = SubtitleProcessor.validateConfig(args);
   const chunks = SubtitleProcessor.splitIntoChunks(fullContent, config.chunkSize);
 
-  return { config, chunks, totalChunks: chunks.length };
+  return {
+    config,
+    chunks,
+    totalChunks: chunks.length,
+    description: content.description
+  };
 }
 
-function formatResponse(processed: ProcessedContent): string {
+function formatResponse(processed: ProcessedContent & { description: string }): string {
   const { config, chunks, totalChunks } = processed;
 
   if (config.chunkIndex < 0 || config.chunkIndex >= totalChunks) {
@@ -246,7 +267,19 @@ async function processYoutubeSubtitles(args: { url: string;[key: string]: any })
     const formattedResponse = formatResponse(processed);
 
     return {
-      content: [{ type: "text", text: formattedResponse }],
+      content: [
+        {
+          type: "text",
+          description: processed.description,
+          text: formattedResponse,
+          meta: {
+            totalChunks: processed.totalChunks,
+            chunkIndex: processed.config.chunkIndex,
+            chunkSize: processed.config.chunkSize,
+            chunks: processed.config.numChunks
+          }
+        }
+      ],
     };
   } catch (err) {
     return {

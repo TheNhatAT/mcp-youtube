@@ -248,13 +248,8 @@ function formatResponse(processed: ProcessedContent & { description: string }): 
   const endIndex = Math.min(config.chunkIndex + config.numChunks, totalChunks);
   const selectedChunks = chunks.slice(config.chunkIndex, endIndex);
 
-  return `Configuration:
-- Chunk size: ${config.chunkSize} words
-- Starting chunk: ${config.chunkIndex + 1}
-- Chunks requested: ${config.numChunks}
-- Total available chunks: ${totalChunks}
+  return `
 =====================
-
 ${selectedChunks.map((chunk, idx) =>
     `[Chunk ${config.chunkIndex + idx + 1}/${totalChunks}]\n${chunk}\n`
   ).join('\n=====================\n')}`;
@@ -270,14 +265,20 @@ async function processYoutubeSubtitles(args: { url: string;[key: string]: any })
       content: [
         {
           type: "text",
-          description: processed.description,
-          text: formattedResponse,
-          meta: {
-            totalChunks: processed.totalChunks,
-            chunkIndex: processed.config.chunkIndex,
-            chunkSize: processed.config.chunkSize,
-            chunks: processed.config.numChunks
-          }
+          text: `Video Description:
+=====================
+${processed.description}
+
+Metadata:
+=====================
+Total Chunks: ${processed.totalChunks}
+Current Chunk Index: ${processed.config.chunkIndex}
+Chunk Size: ${processed.config.chunkSize} words
+Number of Chunks Requested: ${processed.config.numChunks}
+
+Content:
+=====================
+${formattedResponse}`
         }
       ],
     };
